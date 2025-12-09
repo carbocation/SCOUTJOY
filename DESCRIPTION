@@ -1,8 +1,9 @@
 Package: SCOUTJOY
 Title: Significant Cross-trait OUtliers and Trends in JOint York regression
-Version: 1.0.1
+Version: 1.0.2
 Authors@R: c(
-    person("Amanda", "Elliott", email = "aelliott@broadinstitute.org", role = c("aut")), 
+    person("Amanda", "Elliott", email = "aelliott@broadinstitute.org", role = c("aut")),
+    person("Ran", "Cui", role = c("ctb")),
     person("Raymond", "Walters", email = "rwalters@broadinstitute.org", role = c("aut", "cre"))
     )
 Description: Compare genetic effect sizes (with standard errors) 
