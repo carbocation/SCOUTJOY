@@ -255,16 +255,28 @@ AnalyticOutlierTest <- function(data, putativeOutliers, OutlierNull="estimate", 
         
   }else if(OutlierNull=="fitted"){
     
+    # Every putative outlier has the same fit (all putative outliers left out),
+    # so that regression is run once and reused.
+    outlier_mask <- rep(FALSE, nrow(data))
+    outlier_mask[putativeOutliers] <- TRUE
+    b_outliers <- NULL
+    
     OutlierTest <- data.frame(t(sapply(1:nrow(data), function(a){
-      mask <- rep(FALSE, nrow(data))
-      mask[putativeOutliers] <- TRUE
+      mask <- outlier_mask
       mask[a] <- TRUE
       
-      ymod <- yorktools::york(data[!mask,], intercept=0, gridstartvals=T)
-      if(!ymod$converge$converged){
-        stop("york regression failed to converge for global test")
+      if(outlier_mask[a] && !is.null(b_outliers)){
+        b <- b_outliers
       }else{
-        b <- ymod$b[1]
+        ymod <- yorktools::york(data[!mask,], intercept=0, gridstartvals=T)
+        if(!ymod$converge$converged){
+          stop("york regression failed to converge for global test")
+        }else{
+          b <- ymod$b[1]
+        }
+        if(outlier_mask[a]){
+          b_outliers <<- b
+        }
       }
 
       pred <- yorktools::pred.york(data[a,], intercept=0, slope=b)
@@ -281,27 +293,38 @@ AnalyticOutlierTest <- function(data, putativeOutliers, OutlierNull="estimate", 
         
   }else if(OutlierNull=="estimate"){
     
-    ll_full <- sapply(1:nrow(data), function(a){
-      mask <- rep(FALSE, nrow(data))
-      mask[putativeOutliers] <- TRUE
-      mask[a] <- FALSE
+    # ll_full[a]: fit leaving out the putative outliers other than a.
+    # ll_loo[a]:  fit leaving out the putative outliers and a.
+    # For a variant that is not a putative outlier, ll_full is the fit with all
+    # putative outliers left out; for one that is, ll_loo is that same fit. That
+    # regression is run once and reused, instead of once per variant.
+    outlier_mask <- rep(FALSE, nrow(data))
+    outlier_mask[putativeOutliers] <- TRUE
+    
+    york_chi2 <- function(mask, a){
       ymod <- yorktools::york(data[!mask,], intercept=0, gridstartvals=T)
       if(!ymod$converge$converged){
         stop(paste0("york regression failed to converge for outlier test a=",a))
-      }else{
-        return(ymod$chi2)
       }
+      ymod$chi2
+    }
+    chi2_without_outliers <- york_chi2(outlier_mask, "all")
+    
+    ll_full <- sapply(1:nrow(data), function(a){
+      if(!outlier_mask[a]){
+        return(chi2_without_outliers)
+      }
+      mask <- outlier_mask
+      mask[a] <- FALSE
+      york_chi2(mask, a)
     })
     ll_loo <- sapply(1:nrow(data), function(a){
-      mask <- rep(FALSE, nrow(data))
-      mask[putativeOutliers] <- TRUE
-      mask[a] <- TRUE
-      ymod <- yorktools::york(data[!mask,], intercept=0, gridstartvals=T)
-      if(!ymod$converge$converged){
-        stop(paste0("york regression failed to converge for outlier test a=",a))
-      }else{
-        return(ymod$chi2)
+      if(outlier_mask[a]){
+        return(chi2_without_outliers)
       }
+      mask <- outlier_mask
+      mask[a] <- TRUE
+      york_chi2(mask, a)
     })
     
     OutlierTest <- data.frame(RSSobs = ll_full-ll_loo, Pvalue = stats::pchisq(ll_full-ll_loo, df=1, lower=F))
