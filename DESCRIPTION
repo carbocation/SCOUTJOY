@@ -17,6 +17,11 @@ Imports:
     mvtnorm
 Remotes:
     github::rkwalters/yorktools@main
+Suggests:
+    testthat (>= 3.0.0)
+Config/testthat/edition: 3
+SystemRequirements: Cargo (Rust compiler, edition 2021)
+NeedsCompilation: yes
 Encoding: UTF-8
 LazyData: true
 RoxygenNote: 7.2.3

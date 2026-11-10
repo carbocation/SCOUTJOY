@@ -51,6 +51,12 @@
 #' @param printProgress 
 #' Logical, whether to print logging messages.
 #'
+#' @param engine
+#' Which implementation runs the per-variant regressions of the analytic outlier test: "R" (default) or "rust". The rust engine is a compiled, like-for-like port of the York regression (same starting values, iteration and stopping rule), so it gives the same results, agreeing to many digits but not necessarily to the last one. It is much faster. It is not used when \code{NullReplicates} asks for a simulated null.
+#'
+#' @param threads
+#' Number of threads the rust engine spreads the regressions over. Default 1. The regressions are independent, so results do not depend on this value. Ignored by the R engine.
+#'
 #'
 #' @return
 #' Structured list with elements:
@@ -66,6 +72,7 @@
 #'
 #' }
 #'
+#' @useDynLib SCOUTJOY, .registration = TRUE, .fixes = "."
 #' @export
 #'
 #' @references
@@ -100,11 +107,18 @@
 #' 
 
 
-scoutjoy <- function(BetaOutcome, BetaExposure, SdOutcome, SdExposure, data, ids = NULL, CovIntercept = 0, ExposureIntercept=1, OutcomeIntercept=1, OutlierNull="estimate", SignifThreshold = 0.05, NullReplicates = NA, maxOutlierReps=10, seed = NULL, printProgress = TRUE){
+scoutjoy <- function(BetaOutcome, BetaExposure, SdOutcome, SdExposure, data, ids = NULL, CovIntercept = 0, ExposureIntercept=1, OutcomeIntercept=1, OutlierNull="estimate", SignifThreshold = 0.05, NullReplicates = NA, maxOutlierReps=10, seed = NULL, printProgress = TRUE, engine = "R", threads = 1){
   
 	if(!is.null(seed)){
 		set.seed(seed)
 	}
+  
+  if(length(engine)!=1 || !(engine %in% c("R","rust"))){
+    stop("engine must be one of 'R' or 'rust'.")
+  }
+  if(!is.numeric(threads) || length(threads)!=1 || is.na(threads) || threads < 1 || threads != round(threads)){
+    stop("threads must be a single whole number, 1 or larger.")
+  }
   
   BonferroniOutliers=TRUE
   IterateOutliers=TRUE
@@ -198,7 +212,7 @@ scoutjoy <- function(BetaOutcome, BetaExposure, SdOutcome, SdExposure, data, ids
 	
 	if(AnalyticLoss){
 	
-	  OutlierTest <- AnalyticOutlierTest(data, putativeOutliers=NA, OutlierNull=OutlierNull, FixedSlope=FixedSlope)
+	  OutlierTest <- AnalyticOutlierTest(data, putativeOutliers=NA, OutlierNull=OutlierNull, FixedSlope=FixedSlope, engine=engine, threads=threads)
 	  
 	  
 	}else{
@@ -233,7 +247,7 @@ scoutjoy <- function(BetaOutcome, BetaExposure, SdOutcome, SdExposure, data, ids
   
   		  if(AnalyticLoss){
   		    
-  		    OutlierTest <- AnalyticOutlierTest(data, putativeOutliers=refOutlier, OutlierNull=OutlierNull, FixedSlope=FixedSlope)
+  		    OutlierTest <- AnalyticOutlierTest(data, putativeOutliers=refOutlier, OutlierNull=OutlierNull, FixedSlope=FixedSlope, engine=engine, threads=threads)
   		    
   		  }else{
   		  

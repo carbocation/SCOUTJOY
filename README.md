@@ -11,6 +11,22 @@ require(devtools)
 devtools::install_github("aelliott08/SCOUTJOY", ref="main")
 ```
 
+## Rust engine branch
+
+The `dev-jp-rust` branch of `carbocation/SCOUTJOY` adds an optional compiled
+engine for the analytic outlier test (`scoutjoy(..., engine = "rust")`). The
+default engine is still the R code, and the rust engine is a like-for-like port
+of the regression it runs, so the two give the same results. Building this
+branch from source requires a Rust toolchain with `cargo` and `rustc` on `PATH`
+or in `~/.cargo/bin` (see https://rustup.rs/). Rust is needed to build the
+package but not to run it.
+
+```
+devtools::install_github("carbocation/SCOUTJOY", ref="dev-jp-rust")
+```
+
+`benchmarks/benchmark-rust-york.R` times the two engines against each other.
+
 # Usage
 
 See the documentation in R using `?scoutjoy` 

@@ -3,3 +3,4 @@
 S3method(plot,scoutjoy)
 export(plot.scoutjoy)
 export(scoutjoy)
+useDynLib(SCOUTJOY, .registration = TRUE, .fixes = ".")

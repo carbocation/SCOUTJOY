@@ -19,7 +19,9 @@ scoutjoy(
   NullReplicates = NA,
   maxOutlierReps = 10,
   seed = NULL,
-  printProgress = TRUE
+  printProgress = TRUE,
+  engine = "R",
+  threads = 1
 )
 }
 \arguments{
@@ -52,6 +54,10 @@ scoutjoy(
 \item{seed}{Random seed, for use with simulated null.}
 
 \item{printProgress}{Logical, whether to print logging messages.}
+
+\item{engine}{Which implementation runs the per-variant regressions of the analytic outlier test: "R" (default) or "rust". The rust engine is a compiled, like-for-like port of the York regression (same starting values, iteration and stopping rule), so it gives the same results, agreeing to many digits but not necessarily to the last one. It is much faster. It is not used when \code{NullReplicates} asks for a simulated null.}
+
+\item{threads}{Number of threads the rust engine spreads the regressions over. Default 1. The regressions are independent, so results do not depend on this value. Ignored by the R engine.}
 }
 \value{
 Structured list with elements:

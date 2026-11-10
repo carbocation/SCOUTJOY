@@ -238,7 +238,51 @@ OutlierTestRep <- function(data, randomData, BetaOutcome, BetaExposure, SdOutcom
 	return(OutlierTest)
 }
 
-AnalyticOutlierTest <- function(data, putativeOutliers, OutlierNull="estimate", FixedSlope=NULL){
+# Zero-intercept York fits on the data with the putative outliers left out
+# ("base"), and on that subset with one variant's membership reversed: a
+# variant that is in the subset is left out, and a putative outlier is put back.
+#
+# excluded: logical, TRUE for the putative outliers
+# flip: row numbers to fit; 0 asks for the base subset
+# engine: "R" loops over yorktools::york(); "rust" fits them all in one call to
+#   the compiled port of that regression (src/rust/src/lib.rs)
+#
+# Returns list(b, chi2) with one element per entry of flip. Stops if a fit does
+# not converge, naming `label` and the variant.
+york_flip_fits <- function(data, excluded, flip, engine="R", threads=1, label="outlier test"){
+  if(engine == "rust"){
+    out <- .Call(.scoutjoy_york_flip,
+                 as.double(data$x), as.double(data$sx), as.double(data$y), as.double(data$sy), as.double(data$re),
+                 as.logical(excluded), as.integer(flip), as.integer(threads))
+    if(any(out$status == 2L)){
+      stop("Cannot fit a straight line through these data")
+    }
+    if(any(out$status != 0L)){
+      stop(paste0("york regression failed to converge for ", label, " a=", c("all", flip)[1 + which(out$status != 0L)[1]]))
+    }
+    return(list(b = out$b, chi2 = out$chi2))
+  }
+  
+  b <- rep(NA_real_, length(flip))
+  chi2 <- rep(NA_real_, length(flip))
+  for(f in seq_along(flip)){
+    mask <- excluded
+    a <- flip[f]
+    if(a > 0){
+      mask[a] <- !mask[a]
+    }
+    ymod <- yorktools::york(data[!mask,], intercept=0, gridstartvals=T)
+    if(!ymod$converge$converged){
+      stop(paste0("york regression failed to converge for ", label, " a=", if(a > 0) a else "all"))
+    }
+    b[f] <- ymod$b[1]
+    chi2[f] <- ymod$chi2
+  }
+  list(b = b, chi2 = chi2)
+}
+
+
+AnalyticOutlierTest <- function(data, putativeOutliers, OutlierNull="estimate", FixedSlope=NULL, engine="R", threads=1){
   
   if(!is.null(FixedSlope)){
 
@@ -255,29 +299,17 @@ AnalyticOutlierTest <- function(data, putativeOutliers, OutlierNull="estimate", 
         
   }else if(OutlierNull=="fitted"){
     
-    # Every putative outlier has the same fit (all putative outliers left out),
-    # so that regression is run once and reused.
+    # The slope used for variant a comes from the fit with a and every putative
+    # outlier left out. For a putative outlier that is the base fit; for any
+    # other variant it is the base fit with a removed.
     outlier_mask <- rep(FALSE, nrow(data))
     outlier_mask[putativeOutliers] <- TRUE
-    b_outliers <- NULL
+    fits <- york_flip_fits(data, outlier_mask, c(0L, which(!outlier_mask)), engine=engine, threads=threads, label="global test")
+    slope_for <- rep(fits$b[1], nrow(data))
+    slope_for[!outlier_mask] <- fits$b[-1]
     
     OutlierTest <- data.frame(t(sapply(1:nrow(data), function(a){
-      mask <- outlier_mask
-      mask[a] <- TRUE
-      
-      if(outlier_mask[a] && !is.null(b_outliers)){
-        b <- b_outliers
-      }else{
-        ymod <- yorktools::york(data[!mask,], intercept=0, gridstartvals=T)
-        if(!ymod$converge$converged){
-          stop("york regression failed to converge for global test")
-        }else{
-          b <- ymod$b[1]
-        }
-        if(outlier_mask[a]){
-          b_outliers <<- b
-        }
-      }
+      b <- slope_for[a]
 
       pred <- yorktools::pred.york(data[a,], intercept=0, slope=b)
       
@@ -295,37 +327,18 @@ AnalyticOutlierTest <- function(data, putativeOutliers, OutlierNull="estimate", 
     
     # ll_full[a]: fit leaving out the putative outliers other than a.
     # ll_loo[a]:  fit leaving out the putative outliers and a.
-    # For a variant that is not a putative outlier, ll_full is the fit with all
-    # putative outliers left out; for one that is, ll_loo is that same fit. That
-    # regression is run once and reused, instead of once per variant.
+    # For a variant that is not a putative outlier, ll_full is the base fit (all
+    # putative outliers left out) and ll_loo is the base fit with a removed; for
+    # a putative outlier, ll_loo is the base fit and ll_full is the base fit with
+    # a put back. So each variant needs the base fit and one other.
     outlier_mask <- rep(FALSE, nrow(data))
     outlier_mask[putativeOutliers] <- TRUE
+    fits <- york_flip_fits(data, outlier_mask, 0:nrow(data), engine=engine, threads=threads)
+    chi2_without_outliers <- fits$chi2[1]
+    chi2_flipped <- fits$chi2[-1]
     
-    york_chi2 <- function(mask, a){
-      ymod <- yorktools::york(data[!mask,], intercept=0, gridstartvals=T)
-      if(!ymod$converge$converged){
-        stop(paste0("york regression failed to converge for outlier test a=",a))
-      }
-      ymod$chi2
-    }
-    chi2_without_outliers <- york_chi2(outlier_mask, "all")
-    
-    ll_full <- sapply(1:nrow(data), function(a){
-      if(!outlier_mask[a]){
-        return(chi2_without_outliers)
-      }
-      mask <- outlier_mask
-      mask[a] <- FALSE
-      york_chi2(mask, a)
-    })
-    ll_loo <- sapply(1:nrow(data), function(a){
-      if(outlier_mask[a]){
-        return(chi2_without_outliers)
-      }
-      mask <- outlier_mask
-      mask[a] <- TRUE
-      york_chi2(mask, a)
-    })
+    ll_full <- ifelse(outlier_mask, chi2_flipped, chi2_without_outliers)
+    ll_loo <- ifelse(outlier_mask, chi2_without_outliers, chi2_flipped)
     
     OutlierTest <- data.frame(RSSobs = ll_full-ll_loo, Pvalue = stats::pchisq(ll_full-ll_loo, df=1, lower=F))
     
